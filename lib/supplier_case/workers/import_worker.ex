@@ -16,15 +16,16 @@ defmodule SupplierCase.Workers.ImportWorker do
 
         Logger.info("Import completed: #{inspect(result)}")
 
-        {:ok, _} =
-          Oban.Job.update(job, %{
-            meta: %{
-              status: "completed",
-              suppliers_imported: result.suppliers_imported,
-              transactions_imported: result.transactions_imported,
-              chunks_processed: result.chunks_processed
-            }
-          })
+        job
+        |> Oban.Job.update(%{
+          meta: %{
+            status: "completed",
+            suppliers_imported: result.suppliers_imported,
+            transactions_imported: result.transactions_imported,
+            chunks_processed: result.chunks_processed
+          }
+        })
+        |> SupplierCase.Repo.update!()
 
         :ok
 

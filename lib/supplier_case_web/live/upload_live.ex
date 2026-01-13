@@ -77,13 +77,15 @@ defmodule SupplierCaseWeb.UploadLive do
             {:noreply, assign(socket, :job_status, "not_found")}
 
           job ->
+            state = to_string(job.state)
+
             socket =
               socket
-              |> assign(:job_status, job.state)
+              |> assign(:job_status, state)
               |> assign(:progress, job.meta || %{})
 
             socket =
-              if job.state in [:executing, :available, :scheduled] do
+              if state in ["executing", "available", "scheduled"] do
                 Process.send_after(self(), :poll_progress, 1000)
                 socket
               else

@@ -4,9 +4,9 @@ defmodule SupplierCase.Import do
   alias SupplierCase.Transactions.Transaction
   require Logger
 
-  NimbleCSV.define(CSVParser, separator: ",", escape: "\"")
+  NimbleCSV.define(CSVParser, separator: ";", escape: "\"")
 
-  @chunk_size 5000
+  @chunk_size 3000
 
   def import_csv(file_path, job \\ nil) do
     Logger.info("Starting CSV import from #{file_path}")
@@ -17,12 +17,14 @@ defmodule SupplierCase.Import do
     Logger.info("Imported #{suppliers_result.count} suppliers")
 
     if job do
-      Oban.Job.update(job, %{
+      job
+      |> Oban.Job.update(%{
         meta: %{
           status: "processing_transactions",
           suppliers_imported: suppliers_result.count
         }
       })
+      |> Repo.update!()
     end
 
     transactions_result = import_transactions_in_chunks(file_path, vat_to_uuid_map, job)
@@ -40,7 +42,9 @@ defmodule SupplierCase.Import do
 
   defp extract_and_import_suppliers(file_path, job) do
     if job do
-      Oban.Job.update(job, %{meta: %{status: "processing_suppliers"}})
+      job
+      |> Oban.Job.update(%{meta: %{status: "processing_suppliers"}})
+      |> Repo.update!()
     end
 
     unique_suppliers =
@@ -59,13 +63,23 @@ defmodule SupplierCase.Import do
   end
 
   defp parse_supplier_from_row(row) do
-    [vat_id, name, country, nace_code | _rest] = row
+    [
+      supplier,
+      _supplier_name_original,
+      _invoice_number,
+      _invoice_date,
+      _due_date,
+      _description_spend_table,
+      supplier_country,
+      vat_id,
+      nace | _rest
+    ] = row
 
     %{
-      vat_id: vat_id,
-      name: name,
-      country: country,
-      nace_code: nace_code
+      vat_id: String.trim(vat_id),
+      name: String.trim(supplier),
+      country: String.trim(supplier_country),
+      nace_code: String.trim(nace)
     }
   end
 
@@ -109,13 +123,15 @@ defmodule SupplierCase.Import do
       inserted_count = insert_transaction_chunk(chunk)
 
       if job do
-        Oban.Job.update(job, %{
+        job
+        |> Oban.Job.update(%{
           meta: %{
             status: "processing_transactions",
             chunks_processed: chunk_index,
             transactions_imported: acc.count + inserted_count
           }
         })
+        |> Repo.update!()
       end
 
       %{count: acc.count + inserted_count, chunks: chunk_index}
@@ -124,15 +140,16 @@ defmodule SupplierCase.Import do
 
   defp parse_transaction_from_row(row, vat_to_uuid_map) do
     [
-      vat_id,
-      _name,
-      _country,
-      _nace_code,
+      _supplier,
+      _supplier_name_original,
       invoice_number,
       invoice_date,
       due_date,
-      description,
-      amount_nok,
+      description_spend_table,
+      _supplier_country,
+      vat_id,
+      _nace,
+      transaction_value_nok,
       spend_category_l1,
       spend_category_l2,
       spend_category_l3,
@@ -142,7 +159,12 @@ defmodule SupplierCase.Import do
       org_structure_l3
     ] = row
 
-    supplier_id = Map.get(vat_to_uuid_map, vat_id)
+    vat_id_trimmed = String.trim(vat_id)
+    supplier_id = Map.get(vat_to_uuid_map, vat_id_trimmed)
+
+    unless supplier_id do
+      Logger.warning("No supplier found for VAT ID: #{inspect(vat_id_trimmed)}")
+    end
 
     if supplier_id do
       %{
@@ -150,8 +172,8 @@ defmodule SupplierCase.Import do
         invoice_number: invoice_number,
         invoice_date: parse_date(invoice_date),
         due_date: parse_date(due_date),
-        description: description,
-        amount_nok: parse_decimal(amount_nok),
+        description: description_spend_table,
+        amount_nok: parse_decimal(transaction_value_nok),
         spend_category_l1: spend_category_l1,
         spend_category_l2: spend_category_l2,
         spend_category_l3: spend_category_l3,
@@ -188,9 +210,18 @@ defmodule SupplierCase.Import do
   defp parse_date(nil), do: nil
 
   defp parse_date(date_string) do
-    case Date.from_iso8601(date_string) do
-      {:ok, date} -> date
-      {:error, _} -> nil
+    date_string
+    |> String.split("T")
+    |> List.first()
+    |> case do
+      nil ->
+        nil
+
+      date_part ->
+        case Date.from_iso8601(date_part) do
+          {:ok, date} -> date
+          {:error, _} -> nil
+        end
     end
   end
 

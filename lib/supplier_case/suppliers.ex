@@ -51,12 +51,18 @@ defmodule SupplierCase.Suppliers do
   """
   def upsert_suppliers_without_vat(suppliers) do
     Enum.reduce(suppliers, %{}, fn supplier, acc ->
-      existing_supplier =
-        Repo.one(
+      query =
+        if supplier.country do
           from s in Supplier,
             where: s.name == ^supplier.name and s.country == ^supplier.country and is_nil(s.vat_id),
             limit: 1
-        )
+        else
+          from s in Supplier,
+            where: s.name == ^supplier.name and is_nil(s.country) and is_nil(s.vat_id),
+            limit: 1
+        end
+
+      existing_supplier = Repo.one(query)
 
       supplier_id =
         if existing_supplier do

@@ -78,10 +78,13 @@ defmodule SupplierCase.Import do
     trimmed_vat_id = String.trim(vat_id)
     vat_id_value = if trimmed_vat_id == "", do: nil, else: trimmed_vat_id
 
+    trimmed_country = String.trim(supplier_country)
+    country_value = if trimmed_country == "", do: nil, else: trimmed_country
+
     %{
       vat_id: vat_id_value,
       name: String.trim(supplier),
-      country: String.trim(supplier_country),
+      country: country_value,
       nace_code: String.trim(nace)
     }
   end

@@ -10,7 +10,12 @@ defmodule SupplierCaseWeb.UploadLive do
       |> assign(:job_id, nil)
       |> assign(:job_status, nil)
       |> assign(:progress, nil)
-      |> allow_upload(:csv_file, accept: ~w(.csv), max_entries: 1, max_file_size: 500_000_000)
+      |> allow_upload(:csv_file,
+        accept: ~w(.csv),
+        max_entries: 1,
+        max_file_size: 500_000_000,
+        chunk_size: 2_000_000
+      )
 
     {:ok, socket}
   end
@@ -22,34 +27,14 @@ defmodule SupplierCaseWeb.UploadLive do
 
   @impl true
   def handle_event("import", _params, socket) do
-    uploaded_files =
-      consume_uploaded_entries(socket, :csv_file, fn %{path: path}, _entry ->
-        dest = Path.join(["priv", "uploads", "#{System.unique_integer([:positive])}.csv"])
-        File.cp!(path, dest)
-        {:ok, dest}
-      end)
+    socket =
+      socket
+      |> assign(:job_status, "uploading")
+      |> assign(:progress, %{})
 
-    case uploaded_files do
-      [file_path] ->
-        case Import.enqueue_csv_import(file_path) do
-          {:ok, %Oban.Job{id: job_id}} ->
-            Process.send_after(self(), :poll_progress, 1000)
+    send(self(), :process_upload)
 
-            socket =
-              socket
-              |> assign(:job_id, job_id)
-              |> assign(:job_status, "queued")
-              |> assign(:progress, %{})
-
-            {:noreply, socket}
-
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Failed to start import: #{inspect(reason)}")}
-        end
-
-      [] ->
-        {:noreply, put_flash(socket, :error, "No file uploaded")}
-    end
+    {:noreply, socket}
   end
 
   @impl true
@@ -61,6 +46,47 @@ defmodule SupplierCaseWeb.UploadLive do
       |> assign(:progress, nil)
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(:process_upload, socket) do
+    uploaded_files =
+      consume_uploaded_entries(socket, :csv_file, fn %{path: path}, _entry ->
+        dest = Path.join(["priv", "uploads", "#{System.unique_integer([:positive])}.csv"])
+        File.cp!(path, dest)
+        {:ok, dest}
+      end)
+
+    case uploaded_files do
+      [file_path] ->
+        case Import.enqueue_csv_import(file_path) do
+          {:ok, %Oban.Job{id: job_id}} ->
+            Process.send_after(self(), :poll_progress, 100)
+
+            socket =
+              socket
+              |> assign(:job_id, job_id)
+              |> assign(:job_status, "queued")
+
+            {:noreply, socket}
+
+          {:error, reason} ->
+            socket =
+              socket
+              |> assign(:job_status, nil)
+              |> put_flash(:error, "Failed to start import: #{inspect(reason)}")
+
+            {:noreply, socket}
+        end
+
+      [] ->
+        socket =
+          socket
+          |> assign(:job_status, nil)
+          |> put_flash(:error, "No file uploaded")
+
+        {:noreply, socket}
+    end
   end
 
   @impl true
@@ -136,14 +162,14 @@ defmodule SupplierCaseWeb.UploadLive do
         </div>
       <% end %>
 
-      <%= if @job_status in ["executing", "available", "scheduled"] do %>
+      <%= if @job_status in ["executing", "available", "scheduled", "queued", "uploading"] do %>
         <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
           <div class="flex items-start">
             <.icon name="hero-arrow-path" class="w-6 h-6 text-blue-600 animate-spin mt-0.5" />
             <div class="ml-3 flex-1">
               <h3 class="text-lg font-semibold text-blue-900">Import in Progress</h3>
               <p class="mt-1 text-sm text-blue-700">
-                Status: {format_status(@progress)}
+                Status: {format_status(@job_status, @progress)}
               </p>
               <%= if Map.get(@progress, "transactions_imported") do %>
                 <div class="mt-4">
@@ -212,13 +238,23 @@ defmodule SupplierCaseWeb.UploadLive do
 
             <%= for entry <- @uploads.csv_file.entries do %>
               <div class="flex items-center justify-between bg-gray-50 rounded-lg p-4">
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-3 flex-1">
                   <.icon name="hero-document" class="w-5 h-5 text-gray-500" />
-                  <div>
+                  <div class="flex-1">
                     <p class="text-sm font-medium text-gray-900">{entry.client_name}</p>
                     <p class="text-xs text-gray-500">
                       {Float.round(entry.client_size / 1_000_000, 2)} MB
                     </p>
+                    <%= if entry.progress > 0 && entry.progress < 100 do %>
+                      <div class="mt-2 w-full bg-blue-100 rounded-full h-1.5">
+                        <div
+                          class="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                          style={"width: #{entry.progress}%"}
+                        >
+                        </div>
+                      </div>
+                      <p class="text-xs text-blue-600 mt-1">Uploading: {entry.progress}%</p>
+                    <% end %>
                   </div>
                 </div>
                 <button
@@ -260,9 +296,10 @@ defmodule SupplierCaseWeb.UploadLive do
     """
   end
 
-  defp format_status(%{"status" => "processing_suppliers"}), do: "Processing suppliers..."
-  defp format_status(%{"status" => "processing_transactions"}), do: "Processing transactions..."
-  defp format_status(_), do: "Starting import..."
+  defp format_status("uploading", _progress), do: "Uploading file..."
+  defp format_status(_job_status, %{"status" => "processing_suppliers"}), do: "Processing suppliers..."
+  defp format_status(_job_status, %{"status" => "processing_transactions"}), do: "Processing transactions..."
+  defp format_status(_job_status, _progress), do: "Starting import..."
 
   defp error_to_string(:too_large), do: "File is too large (max 500MB)"
   defp error_to_string(:not_accepted), do: "Only CSV files are accepted"

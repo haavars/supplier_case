@@ -30,13 +30,15 @@ defmodule SupplierCase.Import do
     transactions_result = import_transactions_in_chunks(file_path, vat_to_uuid_map, job)
 
     Logger.info(
-      "Imported #{transactions_result.count} transactions in #{transactions_result.chunks} chunks"
+      "Imported #{transactions_result.count} transactions in #{transactions_result.chunks} chunks. " <>
+        "Skipped #{transactions_result.duplicates} duplicates."
     )
 
     %{
       suppliers_imported: suppliers_result.count,
       transactions_imported: transactions_result.count,
-      chunks_processed: transactions_result.chunks
+      chunks_processed: transactions_result.chunks,
+      duplicates_skipped: transactions_result.duplicates
     }
   end
 
@@ -119,8 +121,8 @@ defmodule SupplierCase.Import do
     |> Stream.reject(&is_nil/1)
     |> Stream.chunk_every(@chunk_size)
     |> Stream.with_index(1)
-    |> Enum.reduce(%{count: 0, chunks: 0}, fn {chunk, chunk_index}, acc ->
-      inserted_count = insert_transaction_chunk(chunk)
+    |> Enum.reduce(%{count: 0, chunks: 0, duplicates: 0}, fn {chunk, chunk_index}, acc ->
+      result = insert_transaction_chunk(chunk)
 
       if job do
         job
@@ -128,13 +130,18 @@ defmodule SupplierCase.Import do
           meta: %{
             status: "processing_transactions",
             chunks_processed: chunk_index,
-            transactions_imported: acc.count + inserted_count
+            transactions_imported: acc.count + result.inserted,
+            duplicates_skipped: acc.duplicates + result.duplicates
           }
         })
         |> Repo.update!()
       end
 
-      %{count: acc.count + inserted_count, chunks: chunk_index}
+      %{
+        count: acc.count + result.inserted,
+        chunks: chunk_index,
+        duplicates: acc.duplicates + result.duplicates
+      }
     end)
   end
 
@@ -200,10 +207,18 @@ defmodule SupplierCase.Import do
         Transaction,
         transaction_entries,
         on_conflict: :nothing,
-        conflict_target: [:supplier_id, :invoice_number]
+        conflict_target: [:supplier_id, :invoice_number, :invoice_date]
       )
 
-    count
+    duplicates_skipped = length(transaction_entries) - count
+
+    if duplicates_skipped > 0 do
+      Logger.warning(
+        "Skipped #{duplicates_skipped} duplicate transactions (same supplier_id, invoice_number, and invoice_date)"
+      )
+    end
+
+    %{inserted: count, duplicates: duplicates_skipped}
   end
 
   defp parse_date(""), do: nil

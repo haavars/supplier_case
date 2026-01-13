@@ -22,7 +22,8 @@ defmodule SupplierCase.Workers.ImportWorker do
             status: "completed",
             suppliers_imported: result.suppliers_imported,
             transactions_imported: result.transactions_imported,
-            chunks_processed: result.chunks_processed
+            chunks_processed: result.chunks_processed,
+            duplicates_skipped: result.duplicates_skipped || 0
           }
         })
         |> SupplierCase.Repo.update!()

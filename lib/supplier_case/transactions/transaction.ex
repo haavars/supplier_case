@@ -39,6 +39,8 @@ defmodule SupplierCase.Transactions.Transaction do
       :org_structure_l3
     ])
     |> validate_required([:supplier_id, :invoice_number, :invoice_date, :amount_nok])
-    |> unique_constraint([:supplier_id, :invoice_number])
+    |> unique_constraint([:supplier_id, :invoice_number, :invoice_date],
+      name: :transactions_supplier_invoice_date_index
+    )
   end
 end

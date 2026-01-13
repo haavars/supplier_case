@@ -141,6 +141,7 @@ defmodule SupplierCaseWeb.UploadLive do
               <div class="mt-2 text-sm text-green-700">
                 <p>Suppliers imported: {Map.get(@progress, "suppliers_imported", 0)}</p>
                 <p>Transactions imported: {Map.get(@progress, "transactions_imported", 0)}</p>
+                <p>Duplicates skipped: {Map.get(@progress, "duplicates_skipped", 0)}</p>
                 <p>Chunks processed: {Map.get(@progress, "chunks_processed", 0)}</p>
               </div>
               <div class="mt-4 flex gap-3">

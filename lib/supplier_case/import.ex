@@ -1,7 +1,7 @@
 defmodule SupplierCase.Import do
   alias SupplierCase.Repo
-  alias SupplierCase.Suppliers.Supplier
-  alias SupplierCase.Transactions.Transaction
+  alias SupplierCase.Suppliers
+  alias SupplierCase.Transactions
   require Logger
 
   NimbleCSV.define(CSVParser, separator: ";", escape: "\"")
@@ -12,22 +12,18 @@ defmodule SupplierCase.Import do
     Logger.info("Starting CSV import from #{file_path}")
 
     suppliers_result = extract_and_import_suppliers(file_path, job)
-    vat_to_uuid_map = suppliers_result.vat_to_uuid_map
+    identifier_to_uuid_map = suppliers_result.identifier_map
 
     Logger.info("Imported #{suppliers_result.count} suppliers")
 
     if job do
-      job
-      |> Oban.Job.update(%{
-        meta: %{
-          status: "processing_transactions",
-          suppliers_imported: suppliers_result.count
-        }
+      update_job_meta(job, %{
+        status: "processing_transactions",
+        suppliers_imported: suppliers_result.count
       })
-      |> Repo.update!()
     end
 
-    transactions_result = import_transactions_in_chunks(file_path, vat_to_uuid_map, job)
+    transactions_result = import_transactions_in_chunks(file_path, identifier_to_uuid_map, job)
 
     Logger.info(
       "Imported #{transactions_result.count} transactions in #{transactions_result.chunks} chunks. " <>
@@ -44,9 +40,7 @@ defmodule SupplierCase.Import do
 
   defp extract_and_import_suppliers(file_path, job) do
     if job do
-      job
-      |> Oban.Job.update(%{meta: %{status: "processing_suppliers"}})
-      |> Repo.update!()
+      update_job_meta(job, %{status: "processing_suppliers"})
     end
 
     unique_suppliers =
@@ -55,14 +49,18 @@ defmodule SupplierCase.Import do
       |> CSVParser.parse_stream(skip_headers: true)
       |> Stream.map(&parse_supplier_from_row/1)
       |> Enum.reduce(%{}, fn supplier, acc ->
-        Map.put_new(acc, supplier.vat_id, supplier)
+        key = supplier_key(supplier)
+        Map.put_new(acc, key, supplier)
       end)
       |> Map.values()
 
-    vat_to_uuid_map = bulk_insert_suppliers(unique_suppliers)
+    identifier_to_uuid_map = upsert_suppliers(unique_suppliers)
 
-    %{count: map_size(vat_to_uuid_map), vat_to_uuid_map: vat_to_uuid_map}
+    %{count: map_size(identifier_to_uuid_map), identifier_map: identifier_to_uuid_map}
   end
+
+  defp supplier_key(%{vat_id: vat_id}) when not is_nil(vat_id), do: {:vat, vat_id}
+  defp supplier_key(%{name: name, country: country}), do: {:name_country, name, country}
 
   defp parse_supplier_from_row(row) do
     [
@@ -77,64 +75,56 @@ defmodule SupplierCase.Import do
       nace | _rest
     ] = row
 
+    trimmed_vat_id = String.trim(vat_id)
+    vat_id_value = if trimmed_vat_id == "", do: nil, else: trimmed_vat_id
+
     %{
-      vat_id: String.trim(vat_id),
+      vat_id: vat_id_value,
       name: String.trim(supplier),
       country: String.trim(supplier_country),
       nace_code: String.trim(nace)
     }
   end
 
-  defp bulk_insert_suppliers(suppliers) do
-    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+  defp upsert_suppliers(suppliers) do
+    {suppliers_with_vat, suppliers_without_vat} =
+      Enum.split_with(suppliers, fn s -> not is_nil(s.vat_id) end)
 
-    supplier_entries =
-      Enum.map(suppliers, fn supplier ->
-        %{
-          id: Uniq.UUID.uuid7(:default),
-          vat_id: supplier.vat_id,
-          name: supplier.name,
-          country: supplier.country,
-          nace_code: supplier.nace_code,
-          inserted_at: now,
-          updated_at: now
-        }
-      end)
+    identifier_map_with_vat =
+      if suppliers_with_vat != [] do
+        Suppliers.bulk_upsert_suppliers_with_vat(suppliers_with_vat)
+      else
+        %{}
+      end
 
-    {_count, returned} =
-      Repo.insert_all(
-        Supplier,
-        supplier_entries,
-        on_conflict: {:replace, [:name, :country, :nace_code, :updated_at]},
-        conflict_target: :vat_id,
-        returning: [:id, :vat_id]
-      )
+    identifier_map_without_vat =
+      if suppliers_without_vat != [] do
+        Suppliers.upsert_suppliers_without_vat(suppliers_without_vat)
+      else
+        %{}
+      end
 
-    Map.new(returned, fn supplier -> {supplier.vat_id, supplier.id} end)
+    Map.merge(identifier_map_with_vat, identifier_map_without_vat)
   end
 
-  defp import_transactions_in_chunks(file_path, vat_to_uuid_map, job) do
+  defp import_transactions_in_chunks(file_path, identifier_to_uuid_map, job) do
     file_path
     |> File.stream!()
     |> CSVParser.parse_stream(skip_headers: true)
-    |> Stream.map(&parse_transaction_from_row(&1, vat_to_uuid_map))
+    |> Stream.map(&parse_transaction_from_row(&1, identifier_to_uuid_map))
     |> Stream.reject(&is_nil/1)
     |> Stream.chunk_every(@chunk_size)
     |> Stream.with_index(1)
     |> Enum.reduce(%{count: 0, chunks: 0, duplicates: 0}, fn {chunk, chunk_index}, acc ->
-      result = insert_transaction_chunk(chunk)
+      result = Transactions.bulk_insert_transactions(chunk)
 
       if job do
-        job
-        |> Oban.Job.update(%{
-          meta: %{
-            status: "processing_transactions",
-            chunks_processed: chunk_index,
-            transactions_imported: acc.count + result.inserted,
-            duplicates_skipped: acc.duplicates + result.duplicates
-          }
+        update_job_meta(job, %{
+          status: "processing_transactions",
+          chunks_processed: chunk_index,
+          transactions_imported: acc.count + result.inserted,
+          duplicates_skipped: acc.duplicates + result.duplicates
         })
-        |> Repo.update!()
       end
 
       %{
@@ -145,15 +135,15 @@ defmodule SupplierCase.Import do
     end)
   end
 
-  defp parse_transaction_from_row(row, vat_to_uuid_map) do
+  defp parse_transaction_from_row(row, identifier_to_uuid_map) do
     [
-      _supplier,
+      supplier_name,
       _supplier_name_original,
       invoice_number,
       invoice_date,
       due_date,
       description_spend_table,
-      _supplier_country,
+      supplier_country,
       vat_id,
       _nace,
       transaction_value_nok,
@@ -167,10 +157,22 @@ defmodule SupplierCase.Import do
     ] = row
 
     vat_id_trimmed = String.trim(vat_id)
-    supplier_id = Map.get(vat_to_uuid_map, vat_id_trimmed)
+    vat_id_value = if vat_id_trimmed == "", do: nil, else: vat_id_trimmed
+
+    supplier_id =
+      if vat_id_value do
+        Map.get(identifier_to_uuid_map, {:vat, vat_id_value})
+      else
+        Map.get(
+          identifier_to_uuid_map,
+          {:name_country, String.trim(supplier_name), String.trim(supplier_country)}
+        )
+      end
 
     unless supplier_id do
-      Logger.warning("No supplier found for VAT ID: #{inspect(vat_id_trimmed)}")
+      Logger.warning(
+        "No supplier found for: #{inspect(%{vat_id: vat_id_value, name: supplier_name, country: supplier_country})}"
+      )
     end
 
     if supplier_id do
@@ -192,33 +194,6 @@ defmodule SupplierCase.Import do
     else
       nil
     end
-  end
-
-  defp insert_transaction_chunk(chunk) do
-    now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-
-    transaction_entries =
-      Enum.map(chunk, fn transaction ->
-        Map.merge(transaction, %{inserted_at: now, updated_at: now})
-      end)
-
-    {count, _} =
-      Repo.insert_all(
-        Transaction,
-        transaction_entries,
-        on_conflict: :nothing,
-        conflict_target: [:supplier_id, :invoice_number, :invoice_date]
-      )
-
-    duplicates_skipped = length(transaction_entries) - count
-
-    if duplicates_skipped > 0 do
-      Logger.warning(
-        "Skipped #{duplicates_skipped} duplicate transactions (same supplier_id, invoice_number, and invoice_date)"
-      )
-    end
-
-    %{inserted: count, duplicates: duplicates_skipped}
   end
 
   defp parse_date(""), do: nil
@@ -248,6 +223,12 @@ defmodule SupplierCase.Import do
       {decimal, _} -> decimal
       :error -> Decimal.new(0)
     end
+  end
+
+  defp update_job_meta(job, meta) do
+    job
+    |> Oban.Job.update(%{meta: meta})
+    |> Repo.update!()
   end
 
   def enqueue_csv_import(file_path) do

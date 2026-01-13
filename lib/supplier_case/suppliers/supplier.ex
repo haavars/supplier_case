@@ -19,7 +19,7 @@ defmodule SupplierCase.Suppliers.Supplier do
   def changeset(supplier, attrs) do
     supplier
     |> cast(attrs, [:vat_id, :name, :country, :nace_code])
-    |> validate_required([:vat_id, :name])
+    |> validate_required([:name])
     |> unique_constraint(:vat_id)
   end
 end

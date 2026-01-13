@@ -11,6 +11,7 @@ defmodule SupplierCase.Application do
       SupplierCaseWeb.Telemetry,
       SupplierCase.Repo,
       {DNSCluster, query: Application.get_env(:supplier_case, :dns_cluster_query) || :ignore},
+      {Oban, Application.fetch_env!(:supplier_case, Oban)},
       {Phoenix.PubSub, name: SupplierCase.PubSub},
       # Start a worker by calling: SupplierCase.Worker.start_link(arg)
       # {SupplierCase.Worker, arg},

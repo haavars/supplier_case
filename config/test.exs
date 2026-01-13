@@ -1,4 +1,5 @@
 import Config
+config :supplier_case, Oban, testing: :manual
 
 # Configure your database
 #

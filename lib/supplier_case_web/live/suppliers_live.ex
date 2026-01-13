@@ -7,23 +7,100 @@ defmodule SupplierCaseWeb.SuppliersLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    suppliers_with_spend = load_suppliers_with_spend()
+    socket =
+      socket
+      |> assign(:search, "")
+      |> assign(:country_filter, "")
+      |> assign(:nace_filter, "")
+      |> assign(:sort_by, :total_spend)
+      |> assign(:sort_order, :desc)
+      |> load_data()
+
+    {:ok, socket}
+  end
+
+  @impl true
+  def handle_event("search", %{"search" => search}, socket) do
+    socket =
+      socket
+      |> assign(:search, search)
+      |> load_data()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("filter", %{"country" => country, "nace" => nace}, socket) do
+    socket =
+      socket
+      |> assign(:country_filter, country)
+      |> assign(:nace_filter, nace)
+      |> load_data()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("clear_filters", _params, socket) do
+    socket =
+      socket
+      |> assign(:search, "")
+      |> assign(:country_filter, "")
+      |> assign(:nace_filter, "")
+      |> load_data()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("sort", %{"column" => column}, socket) do
+    column_atom = String.to_existing_atom(column)
+    
+    sort_order =
+      if socket.assigns.sort_by == column_atom do
+        toggle_sort_order(socket.assigns.sort_order)
+      else
+        :desc
+      end
+
+    socket =
+      socket
+      |> assign(:sort_by, column_atom)
+      |> assign(:sort_order, sort_order)
+      |> load_data()
+
+    {:noreply, socket}
+  end
+
+  defp toggle_sort_order(:asc), do: :desc
+  defp toggle_sort_order(:desc), do: :asc
+
+  defp load_data(socket) do
+    suppliers_with_spend = load_suppliers_with_spend(
+      socket.assigns.search,
+      socket.assigns.country_filter,
+      socket.assigns.nace_filter,
+      socket.assigns.sort_by,
+      socket.assigns.sort_order
+    )
+    
+    countries = load_unique_countries()
+    nace_codes = load_unique_nace_codes()
     
     total_suppliers = length(suppliers_with_spend)
     total_spend = Enum.reduce(suppliers_with_spend, Decimal.new(0), fn supplier, acc ->
       Decimal.add(acc, supplier.total_spend || Decimal.new(0))
     end)
 
-    socket =
-      socket
-      |> assign(:suppliers, suppliers_with_spend)
-      |> assign(:total_suppliers, total_suppliers)
-      |> assign(:total_spend, total_spend)
-
-    {:ok, socket}
+    socket
+    |> assign(:suppliers, suppliers_with_spend)
+    |> assign(:countries, countries)
+    |> assign(:nace_codes, nace_codes)
+    |> assign(:total_suppliers, total_suppliers)
+    |> assign(:total_spend, total_spend)
   end
 
-  defp load_suppliers_with_spend do
+  defp load_suppliers_with_spend(search, country_filter, nace_filter, sort_by, sort_order) do
     query =
       from s in Supplier,
         left_join: t in Transaction,
@@ -36,8 +113,78 @@ defmodule SupplierCaseWeb.SuppliersLive do
           country: s.country,
           nace_code: s.nace_code,
           total_spend: sum(t.amount_nok)
-        },
-        order_by: [desc: sum(t.amount_nok)]
+        }
+
+    query = apply_search_filter(query, search)
+    query = apply_country_filter(query, country_filter)
+    query = apply_nace_filter(query, nace_filter)
+    query = apply_sorting(query, sort_by, sort_order)
+
+    Repo.all(query)
+  end
+
+  defp apply_search_filter(query, ""), do: query
+  defp apply_search_filter(query, search) do
+    search_pattern = "%#{search}%"
+    from [s, ...] in query,
+      where: ilike(s.name, ^search_pattern) or ilike(s.vat_id, ^search_pattern)
+  end
+
+  defp apply_country_filter(query, ""), do: query
+  defp apply_country_filter(query, country) do
+    from [s, ...] in query,
+      where: s.country == ^country
+  end
+
+  defp apply_nace_filter(query, ""), do: query
+  defp apply_nace_filter(query, nace) do
+    from [s, ...] in query,
+      where: s.nace_code == ^nace
+  end
+
+  defp apply_sorting(query, :name, order) do
+    from [s, ...] in query,
+      order_by: [{^order, s.name}]
+  end
+
+  defp apply_sorting(query, :vat_id, order) do
+    from [s, ...] in query,
+      order_by: [{^order, s.vat_id}]
+  end
+
+  defp apply_sorting(query, :country, order) do
+    from [s, ...] in query,
+      order_by: [{^order, s.country}]
+  end
+
+  defp apply_sorting(query, :nace_code, order) do
+    from [s, ...] in query,
+      order_by: [{^order, s.nace_code}]
+  end
+
+  defp apply_sorting(query, :total_spend, order) do
+    from [s, t] in query,
+      order_by: [{^order, sum(t.amount_nok)}]
+  end
+
+  defp load_unique_countries do
+    query =
+      from s in Supplier,
+        where: not is_nil(s.country),
+        distinct: true,
+        select: s.country,
+        order_by: s.country
+
+    Repo.all(query)
+  end
+
+  defp load_unique_nace_codes do
+    query =
+      from s in Supplier,
+        where: not is_nil(s.nace_code),
+        distinct: true,
+        select: s.nace_code,
+        order_by: s.nace_code
 
     Repo.all(query)
   end
@@ -94,27 +241,117 @@ defmodule SupplierCaseWeb.SuppliersLive do
 
       <div class="bg-white rounded-lg shadow border border-gray-200">
         <div class="px-6 py-4 border-b border-gray-200">
-          <h2 class="text-lg font-semibold text-gray-900">All Suppliers</h2>
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <h2 class="text-lg font-semibold text-gray-900">All Suppliers</h2>
+            
+            <form phx-change="search" class="flex-1 max-w-md">
+              <div class="relative">
+                <input
+                  type="text"
+                  name="search"
+                  value={@search}
+                  placeholder="Search by name or VAT ID..."
+                  class="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <.icon name="hero-magnifying-glass" class="w-5 h-5 text-gray-400 absolute left-3 top-2.5" />
+              </div>
+            </form>
+          </div>
+
+          <form phx-change="filter" class="mt-4 flex flex-wrap gap-3">
+            <div class="flex-1 min-w-[200px]">
+              <select
+                name="country"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">All Countries</option>
+                <%= for country <- @countries do %>
+                  <option value={country} selected={@country_filter == country}>
+                    {country}
+                  </option>
+                <% end %>
+              </select>
+            </div>
+
+            <div class="flex-1 min-w-[200px]">
+              <select
+                name="nace"
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">All Industry Codes</option>
+                <%= for nace <- @nace_codes do %>
+                  <option value={nace} selected={@nace_filter == nace}>
+                    {nace}
+                  </option>
+                <% end %>
+              </select>
+            </div>
+
+            <%= if @search != "" or @country_filter != "" or @nace_filter != "" do %>
+              <button
+                type="button"
+                phx-click="clear_filters"
+                class="px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Clear Filters
+              </button>
+            <% end %>
+          </form>
         </div>
 
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
               <tr>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Supplier
+                <th
+                  phx-click="sort"
+                  phx-value-column="name"
+                  class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                >
+                  <div class="flex items-center gap-2">
+                    Supplier
+                    {render_sort_icon(assigns, :name)}
+                  </div>
                 </th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Org nr
+                <th
+                  phx-click="sort"
+                  phx-value-column="vat_id"
+                  class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                >
+                  <div class="flex items-center gap-2">
+                    Org nr
+                    {render_sort_icon(assigns, :vat_id)}
+                  </div>
                 </th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Country
+                <th
+                  phx-click="sort"
+                  phx-value-column="country"
+                  class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                >
+                  <div class="flex items-center gap-2">
+                    Country
+                    {render_sort_icon(assigns, :country)}
+                  </div>
                 </th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Industry Code
+                <th
+                  phx-click="sort"
+                  phx-value-column="nace_code"
+                  class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                >
+                  <div class="flex items-center gap-2">
+                    Industry Code
+                    {render_sort_icon(assigns, :nace_code)}
+                  </div>
                 </th>
-                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total Spend
+                <th
+                  phx-click="sort"
+                  phx-value-column="total_spend"
+                  class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                >
+                  <div class="flex items-center justify-end gap-2">
+                    Total Spend
+                    {render_sort_icon(assigns, :total_spend)}
+                  </div>
                 </th>
               </tr>
             </thead>
@@ -124,13 +361,26 @@ defmodule SupplierCaseWeb.SuppliersLive do
                   <td colspan="5" class="px-6 py-12 text-center text-gray-500">
                     <div class="flex flex-col items-center">
                       <.icon name="hero-inbox" class="w-12 h-12 text-gray-400 mb-3" />
-                      <p class="text-lg font-medium">No suppliers found</p>
-                      <p class="mt-1 text-sm">
-                        <.link navigate={~p"/upload"} class="text-blue-600 hover:text-blue-700">
-                          Import a CSV file
-                        </.link>
-                        to get started
-                      </p>
+                      <%= if @search != "" or @country_filter != "" or @nace_filter != "" do %>
+                        <p class="text-lg font-medium">No suppliers found</p>
+                        <p class="mt-1 text-sm">
+                          Try adjusting your filters or
+                          <button
+                            phx-click="clear_filters"
+                            class="text-blue-600 hover:text-blue-700"
+                          >
+                            clear all filters
+                          </button>
+                        </p>
+                      <% else %>
+                        <p class="text-lg font-medium">No suppliers found</p>
+                        <p class="mt-1 text-sm">
+                          <.link navigate={~p"/upload"} class="text-blue-600 hover:text-blue-700">
+                            Import a CSV file
+                          </.link>
+                          to get started
+                        </p>
+                      <% end %>
                     </div>
                   </td>
                 </tr>
@@ -163,6 +413,24 @@ defmodule SupplierCaseWeb.SuppliersLive do
       </div>
     </div>
     """
+  end
+
+  defp render_sort_icon(assigns, column) do
+    if assigns.sort_by == column do
+      if assigns.sort_order == :asc do
+        ~H"""
+        <.icon name="hero-chevron-up" class="w-4 h-4" />
+        """
+      else
+        ~H"""
+        <.icon name="hero-chevron-down" class="w-4 h-4" />
+        """
+      end
+    else
+      ~H"""
+      <.icon name="hero-chevron-up-down" class="w-4 h-4 text-gray-300" />
+      """
+    end
   end
 
   defp format_number(nil), do: "0"

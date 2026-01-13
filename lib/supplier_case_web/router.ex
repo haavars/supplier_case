@@ -19,7 +19,8 @@ defmodule SupplierCaseWeb.Router do
   scope "/", SupplierCaseWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", SuppliersLive, :index
+    live "/upload", UploadLive, :index
   end
 
   # Other scopes may use custom stacks.

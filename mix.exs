@@ -68,7 +68,8 @@ defmodule SupplierCase.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
-      {:uniq, "~> 0.6"}
+      {:uniq, "~> 0.6"},
+      {:nimble_csv, "~> 1.2"}
     ]
   end
 

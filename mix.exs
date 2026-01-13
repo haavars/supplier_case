@@ -40,6 +40,7 @@ defmodule SupplierCase.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:tidewave, "~> 0.5", only: [:dev]},
       {:oban_web, "~> 2.0"},
       {:oban, "~> 2.0"},
       {:phoenix, "~> 1.8.3"},

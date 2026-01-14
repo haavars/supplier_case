@@ -54,7 +54,8 @@ defmodule SupplierCase.Suppliers do
       query =
         if supplier.country do
           from s in Supplier,
-            where: s.name == ^supplier.name and s.country == ^supplier.country and is_nil(s.vat_id),
+            where:
+              s.name == ^supplier.name and s.country == ^supplier.country and is_nil(s.vat_id),
             limit: 1
         else
           from s in Supplier,

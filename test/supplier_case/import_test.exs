@@ -19,7 +19,7 @@ defmodule SupplierCase.ImportTest do
 
     test "handles duplicate imports by skipping them" do
       first_result = Import.import_csv(@sample_csv_path)
-      
+
       second_result = Import.import_csv(@sample_csv_path)
 
       assert second_result.duplicates_skipped > 0
@@ -42,7 +42,7 @@ defmodule SupplierCase.ImportTest do
       transactions = Transactions.get_transactions_by_supplier(supplier.id)
 
       assert length(transactions) > 0
-      
+
       first_transaction = List.first(transactions)
       assert first_transaction.invoice_number == "15286"
       assert Decimal.equal?(first_transaction.amount_nok, Decimal.new("74009.67"))

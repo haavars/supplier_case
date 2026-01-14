@@ -175,30 +175,30 @@ defmodule SupplierCase.Import do
         )
       end
 
-    unless supplier_id do
-      Logger.warning(
-        "No supplier found for: #{inspect(%{vat_id: vat_id_value, name: supplier_name, country: supplier_country})}"
-      )
-    end
+    case supplier_id do
+      nil ->
+        Logger.warning(
+          "No supplier found for: #{inspect(%{vat_id: vat_id_value, name: supplier_name, country: supplier_country})}"
+        )
 
-    if supplier_id do
-      %{
-        supplier_id: supplier_id,
-        invoice_number: invoice_number,
-        invoice_date: parse_date(invoice_date),
-        due_date: parse_date(due_date),
-        description: description_spend_table,
-        amount_nok: parse_decimal(transaction_value_nok),
-        spend_category_l1: spend_category_l1,
-        spend_category_l2: spend_category_l2,
-        spend_category_l3: spend_category_l3,
-        spend_category_l4: spend_category_l4,
-        org_structure_l1: org_structure_l1,
-        org_structure_l2: org_structure_l2,
-        org_structure_l3: org_structure_l3
-      }
-    else
-      nil
+        nil
+
+      id ->
+        %{
+          supplier_id: id,
+          invoice_number: invoice_number,
+          invoice_date: parse_date(invoice_date),
+          due_date: parse_date(due_date),
+          description: description_spend_table,
+          amount_nok: parse_decimal(transaction_value_nok),
+          spend_category_l1: spend_category_l1,
+          spend_category_l2: spend_category_l2,
+          spend_category_l3: spend_category_l3,
+          spend_category_l4: spend_category_l4,
+          org_structure_l1: org_structure_l1,
+          org_structure_l2: org_structure_l2,
+          org_structure_l3: org_structure_l3
+        }
     end
   end
 

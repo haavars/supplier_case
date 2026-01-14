@@ -55,7 +55,7 @@ defmodule SupplierCaseWeb.SuppliersLive do
   @impl true
   def handle_event("sort", %{"column" => column}, socket) do
     column_atom = String.to_existing_atom(column)
-    
+
     sort_order =
       if socket.assigns.sort_by == column_atom do
         toggle_sort_order(socket.assigns.sort_order)
@@ -76,21 +76,24 @@ defmodule SupplierCaseWeb.SuppliersLive do
   defp toggle_sort_order(:desc), do: :asc
 
   defp load_data(socket) do
-    suppliers_with_spend = load_suppliers_with_spend(
-      socket.assigns.search,
-      socket.assigns.country_filter,
-      socket.assigns.nace_filter,
-      socket.assigns.sort_by,
-      socket.assigns.sort_order
-    )
-    
+    suppliers_with_spend =
+      load_suppliers_with_spend(
+        socket.assigns.search,
+        socket.assigns.country_filter,
+        socket.assigns.nace_filter,
+        socket.assigns.sort_by,
+        socket.assigns.sort_order
+      )
+
     countries = load_unique_countries()
     nace_codes = load_unique_nace_codes()
-    
+
     total_suppliers = length(suppliers_with_spend)
-    total_spend = Enum.reduce(suppliers_with_spend, Decimal.new(0), fn supplier, acc ->
-      Decimal.add(acc, supplier.total_spend || Decimal.new(0))
-    end)
+
+    total_spend =
+      Enum.reduce(suppliers_with_spend, Decimal.new(0), fn supplier, acc ->
+        Decimal.add(acc, supplier.total_spend || Decimal.new(0))
+      end)
 
     socket
     |> assign(:suppliers, suppliers_with_spend)
@@ -100,7 +103,7 @@ defmodule SupplierCaseWeb.SuppliersLive do
     |> assign(:total_spend, total_spend)
   end
 
-  defp load_suppliers_with_spend(search, country_filter, nace_filter, sort_by, sort_order) do
+  def load_suppliers_with_spend(search, country_filter, nace_filter, sort_by, sort_order) do
     query =
       from s in Supplier,
         left_join: t in Transaction,
@@ -125,19 +128,25 @@ defmodule SupplierCaseWeb.SuppliersLive do
   end
 
   defp apply_search_filter(query, ""), do: query
+
   defp apply_search_filter(query, search) do
     search_pattern = "%#{search}%"
+
     from [s, ...] in query,
-      where: ilike(s.name, ^search_pattern) or (not is_nil(s.vat_id) and ilike(s.vat_id, ^search_pattern))
+      where:
+        ilike(s.name, ^search_pattern) or
+          (not is_nil(s.vat_id) and ilike(s.vat_id, ^search_pattern))
   end
 
   defp apply_country_filter(query, ""), do: query
+
   defp apply_country_filter(query, country) do
     from [s, ...] in query,
       where: s.country == ^country
   end
 
   defp apply_nace_filter(query, ""), do: query
+
   defp apply_nace_filter(query, nace) do
     from [s, ...] in query,
       where: s.nace_code == ^nace
@@ -204,8 +213,7 @@ defmodule SupplierCaseWeb.SuppliersLive do
             navigate={~p"/upload"}
             class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            <.icon name="hero-arrow-up-tray" class="w-5 h-5 mr-2" />
-            Import CSV
+            <.icon name="hero-arrow-up-tray" class="w-5 h-5 mr-2" /> Import CSV
           </.link>
         </div>
       </div>
@@ -244,7 +252,7 @@ defmodule SupplierCaseWeb.SuppliersLive do
         <div class="px-6 py-4 border-b border-gray-200">
           <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <h2 class="text-lg font-semibold text-gray-900">All Suppliers</h2>
-            
+
             <form phx-change="search" class="flex-1 max-w-md">
               <div class="relative">
                 <input
@@ -254,7 +262,10 @@ defmodule SupplierCaseWeb.SuppliersLive do
                   placeholder="Search by name or VAT ID..."
                   class="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-                <.icon name="hero-magnifying-glass" class="w-5 h-5 text-gray-400 absolute left-3 top-2.5" />
+                <.icon
+                  name="hero-magnifying-glass"
+                  class="w-5 h-5 text-gray-400 absolute left-3 top-2.5"
+                />
               </div>
             </form>
           </div>
@@ -310,8 +321,7 @@ defmodule SupplierCaseWeb.SuppliersLive do
                   class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                 >
                   <div class="flex items-center gap-2">
-                    Supplier
-                    {render_sort_icon(assigns, :name)}
+                    Supplier {render_sort_icon(assigns, :name)}
                   </div>
                 </th>
                 <th
@@ -320,8 +330,7 @@ defmodule SupplierCaseWeb.SuppliersLive do
                   class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                 >
                   <div class="flex items-center gap-2">
-                    Org nr
-                    {render_sort_icon(assigns, :vat_id)}
+                    Org nr {render_sort_icon(assigns, :vat_id)}
                   </div>
                 </th>
                 <th
@@ -330,8 +339,7 @@ defmodule SupplierCaseWeb.SuppliersLive do
                   class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                 >
                   <div class="flex items-center gap-2">
-                    Country
-                    {render_sort_icon(assigns, :country)}
+                    Country {render_sort_icon(assigns, :country)}
                   </div>
                 </th>
                 <th
@@ -354,8 +362,7 @@ defmodule SupplierCaseWeb.SuppliersLive do
                   class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                 >
                   <div class="flex items-center justify-end gap-2">
-                    Total Spend
-                    {render_sort_icon(assigns, :total_spend)}
+                    Total Spend {render_sort_icon(assigns, :total_spend)}
                   </div>
                 </th>
               </tr>
@@ -446,6 +453,7 @@ defmodule SupplierCaseWeb.SuppliersLive do
   end
 
   defp format_number(nil), do: "0"
+
   defp format_number(number) when is_integer(number) do
     number
     |> Integer.to_string()
@@ -455,6 +463,7 @@ defmodule SupplierCaseWeb.SuppliersLive do
   end
 
   defp format_currency(nil), do: "NOK 0"
+
   defp format_currency(%Decimal{} = amount) do
     amount
     |> Decimal.round(2)

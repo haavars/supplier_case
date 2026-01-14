@@ -8,7 +8,7 @@ defmodule SupplierCase.TransactionsTest do
     suppliers = [%{name: "Test Corp", country: "NO", vat_id: "NO999", nace_code: "62.01"}]
     result = Suppliers.bulk_upsert_suppliers_with_vat(suppliers)
     supplier_id = result[{:vat, "NO999"}]
-    
+
     %{supplier_id: supplier_id}
   end
 

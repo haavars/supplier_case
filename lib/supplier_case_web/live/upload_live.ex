@@ -298,8 +298,13 @@ defmodule SupplierCaseWeb.UploadLive do
   end
 
   defp format_status("uploading", _progress), do: "Uploading file..."
-  defp format_status(_job_status, %{"status" => "processing_suppliers"}), do: "Processing suppliers..."
-  defp format_status(_job_status, %{"status" => "processing_transactions"}), do: "Processing transactions..."
+
+  defp format_status(_job_status, %{"status" => "processing_suppliers"}),
+    do: "Processing suppliers..."
+
+  defp format_status(_job_status, %{"status" => "processing_transactions"}),
+    do: "Processing transactions..."
+
   defp format_status(_job_status, _progress), do: "Starting import..."
 
   defp error_to_string(:too_large), do: "File is too large (max 500MB)"

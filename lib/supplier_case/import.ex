@@ -162,13 +162,16 @@ defmodule SupplierCase.Import do
     vat_id_trimmed = String.trim(vat_id)
     vat_id_value = if vat_id_trimmed == "", do: nil, else: vat_id_trimmed
 
+    trimmed_country = String.trim(supplier_country)
+    country_value = if trimmed_country == "", do: nil, else: trimmed_country
+
     supplier_id =
       if vat_id_value do
         Map.get(identifier_to_uuid_map, {:vat, vat_id_value})
       else
         Map.get(
           identifier_to_uuid_map,
-          {:name_country, String.trim(supplier_name), String.trim(supplier_country)}
+          {:name_country, String.trim(supplier_name), country_value}
         )
       end
 

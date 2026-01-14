@@ -411,11 +411,17 @@ defmodule SupplierCaseWeb.SuppliersLive do
                     <td class="px-6 py-4 whitespace-nowrap">
                       <div class="text-sm text-gray-900">{supplier.nace_code || "-"}</div>
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                      <div class="text-sm text-gray-900">
-                        {if supplier.spend_category_l2,
-                          do: Enum.join(supplier.spend_category_l2, ", "),
-                          else: "-"}
+                    <td class="px-6 py-4">
+                      <div class="flex flex-wrap gap-2">
+                        <%= if supplier.spend_category_l2 && supplier.spend_category_l2 != [] do %>
+                          <%= for category <- Enum.reject(supplier.spend_category_l2, &(is_nil(&1) or &1 == "")) do %>
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              {category}
+                            </span>
+                          <% end %>
+                        <% else %>
+                          <span class="text-sm text-gray-500">-</span>
+                        <% end %>
                       </div>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-right">

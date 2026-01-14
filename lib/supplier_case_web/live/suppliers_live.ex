@@ -112,7 +112,8 @@ defmodule SupplierCaseWeb.SuppliersLive do
           vat_id: s.vat_id,
           country: s.country,
           nace_code: s.nace_code,
-          total_spend: sum(t.amount_nok)
+          total_spend: sum(t.amount_nok),
+          spend_category_l2: fragment("array_agg(DISTINCT ?)", t.spend_category_l2)
         }
 
     query = apply_search_filter(query, search)
@@ -339,8 +340,12 @@ defmodule SupplierCaseWeb.SuppliersLive do
                   class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
                 >
                   <div class="flex items-center gap-2">
-                    Industry Code
-                    {render_sort_icon(assigns, :nace_code)}
+                    Industry Code {render_sort_icon(assigns, :nace_code)}
+                  </div>
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <div class="flex items-center gap-2">
+                    Spend Category L2
                   </div>
                 </th>
                 <th
@@ -358,7 +363,7 @@ defmodule SupplierCaseWeb.SuppliersLive do
             <tbody class="bg-white divide-y divide-gray-200">
               <%= if @suppliers == [] do %>
                 <tr>
-                  <td colspan="5" class="px-6 py-12 text-center text-gray-500">
+                  <td colspan="6" class="px-6 py-12 text-center text-gray-500">
                     <div class="flex flex-col items-center">
                       <.icon name="hero-inbox" class="w-12 h-12 text-gray-400 mb-3" />
                       <%= if @search != "" or @country_filter != "" or @nace_filter != "" do %>
@@ -398,6 +403,13 @@ defmodule SupplierCaseWeb.SuppliersLive do
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap">
                       <div class="text-sm text-gray-900">{supplier.nace_code || "-"}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <div class="text-sm text-gray-900">
+                        {if supplier.spend_category_l2,
+                          do: Enum.join(supplier.spend_category_l2, ", "),
+                          else: "-"}
+                      </div>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-right">
                       <div class="text-sm font-medium text-gray-900">
